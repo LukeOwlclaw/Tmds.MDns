@@ -55,6 +55,10 @@ namespace Tmds.MDns
         {
             WriteName(name);
             WriteUInt16((ushort)qtype);
+            //ushort mask = unchecked((1 << 15));
+            //ushort classValue = (ushort)qclass;
+            //var us = (ushort)(classValue | mask);
+            //WriteUInt16(us);
             WriteUInt16((ushort)qclass);
             _questionCount++;
         }
@@ -71,7 +75,11 @@ namespace Tmds.MDns
             Debug.Assert(_recordStartPosition == 0);
             WriteName(name);
             WriteUInt16((ushort)type);
-            WriteUInt16((ushort)_class);
+            ushort mask = unchecked((1 << 15));
+            ushort classValue = (ushort)_class;
+            var us = (ushort)(classValue & mask);
+            WriteUInt16(us);
+            //WriteUInt16((ushort)_class);
             WriteUInt32(ttl);
             WriteUInt16(0);
             switch (recordType)

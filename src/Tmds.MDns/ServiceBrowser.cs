@@ -32,7 +32,7 @@ namespace Tmds.MDns
 
         public void StartBrowse(string serviceType, SynchronizationContext synchronizationContext)
         {
-            StartBrowse(new [] { serviceType }, synchronizationContext);
+            StartBrowse(new[] { serviceType }, synchronizationContext);
         }
 
         public void StartBrowse(IEnumerable<string> serviceTypes, SynchronizationContext synchronizationContext)
@@ -106,6 +106,7 @@ namespace Tmds.MDns
                 NetworkInterface = service.NetworkInterface,
                 Port = (ushort)service.Port,
                 Txt = service.Txt,
+                Ptr = service.Ptr,
                 Type = service.Name.SubName(1, 2).ToString()
             };
             lock (_serviceAnnouncements)
@@ -186,6 +187,7 @@ namespace Tmds.MDns
                 NetworkInterface = service.NetworkInterface,
                 Port = (ushort)service.Port,
                 Txt = service.Txt,
+                Ptr = service.Ptr,
                 Type = service.Name.SubName(1, 2).ToString()
             };
             SynchronizationContextPost(o =>
@@ -197,6 +199,7 @@ namespace Tmds.MDns
                 announcement.NetworkInterface = tmpAnnouncement.NetworkInterface;
                 announcement.Port = tmpAnnouncement.Port;
                 announcement.Txt = tmpAnnouncement.Txt;
+                announcement.Ptr = tmpAnnouncement.Ptr;
                 announcement.Type = tmpAnnouncement.Type;
                 if (ServiceChanged != null)
                 {

@@ -25,17 +25,9 @@ namespace Tmds.MDns
     {
         public ServiceInfo(NetworkInterface networkInterface, Name name)
         {
-            if (name == null)
-            {
-                throw new ArgumentNullException("name");
-            }
-            if (networkInterface == null)
-            {
-                throw new ArgumentNullException("networkInterface");
-            }
-            Name = name;
+            Name = name ?? throw new ArgumentNullException("name");
             Port = -1;
-            NetworkInterface = networkInterface;
+            NetworkInterface = networkInterface ?? throw new ArgumentNullException("networkInterface");
         }
 
         public Name Name { get; set; }
@@ -43,6 +35,7 @@ namespace Tmds.MDns
         public int Port { get; set; }
         public IList<IPAddress> Addresses { get; set; }
         public IList<string> Txt { get; set; }
+        public IList<string> Ptr { get; set; }
         public NetworkInterface NetworkInterface { get; private set; }
         public int OpenQueryCount { get; set; }
         public DateTime LastQueryTime { get; set; }

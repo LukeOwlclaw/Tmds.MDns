@@ -31,6 +31,7 @@ namespace Tmds.MDns
         public IList<IPAddress> Addresses { get; internal set; }
         public NetworkInterface NetworkInterface { get; internal set; }
         public IList<string> Txt { get; internal set;}
+        public IList<string> Ptr { get; internal set;}
         public bool IsRemoved { get; internal set; }
     }
 }
