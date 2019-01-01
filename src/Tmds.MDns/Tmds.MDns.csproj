@@ -11,6 +11,9 @@
     <PackageTags>mdns;avahi;zeroconf;rfc6762;rfc6763</PackageTags>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>git://github.com/tmds/Tmds.MDns</RepositoryUrl>
+    <ApplicationIcon />
+    <OutputType>Library</OutputType>
+    <StartupObject />
   </PropertyGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard1.3' ">

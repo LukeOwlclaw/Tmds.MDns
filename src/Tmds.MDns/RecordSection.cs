@@ -16,7 +16,7 @@
 
 namespace Tmds.MDns
 {
-    enum RecordSection
+    public enum RecordSection
     {
         Answer,
         Authority,

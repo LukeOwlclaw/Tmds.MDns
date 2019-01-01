@@ -23,7 +23,6 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Tmds.MDns
 {
@@ -57,114 +56,6 @@ namespace Tmds.MDns
             }
         }
 
-#if NETSTANDARD1_3
-        public async void SendAndReceive(byte[] requestBytes, int retries, TimeSpan scanTime,
-            int retryDelayMilliseconds, Action<UdpReceiveResult> onResponse, CancellationToken cancellationToken)
-        {
-            using (var client = new UdpClient())
-            {
-                for (var i = 0; i < retries; i++)
-                {
-                    try
-                    {
-
-                        var localEp = new IPEndPoint(IPAddress.Any, 5353);
-
-                        // There could be multiple adapters, get the default one
-                        var ifaceIndex = _index;
-
-                        client.Client.SetSocketOption(SocketOptionLevel.IP,
-                                                      SocketOptionName.MulticastInterface,
-                                                      (int)IPAddress.HostToNetworkOrder(ifaceIndex));
-
-
-
-                        client.ExclusiveAddressUse = false;
-                        client.Client.SetSocketOption(SocketOptionLevel.Socket,
-                                                      SocketOptionName.ReuseAddress,
-                                                      true);
-                        client.Client.SetSocketOption(SocketOptionLevel.Socket,
-                                                      SocketOptionName.ReceiveTimeout,
-                                                      scanTime.Milliseconds);
-                        client.ExclusiveAddressUse = false;
-
-                        client.Client.Bind(localEp);
-
-                        var multicastAddress = IPAddress.Parse("224.0.0.251");
-
-                        var multOpt = new MulticastOption(multicastAddress, ifaceIndex);
-                        client.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
-
-
-                        Debug.WriteLine("Bound to multicast address");
-
-                        // Start a receive loop
-                        var shouldCancel = false;
-                        var recTask = Task.Run(async
-                                               () =>
-                        {
-                            try
-                            {
-                                while (!shouldCancel)
-                                {
-                                    var res = await client.ReceiveAsync()
-                                                          .ConfigureAwait(false);
-                                    onResponse(res);
-                                }
-                            }
-                            catch (ObjectDisposedException)
-                            {
-                            }
-                        }, cancellationToken);
-
-                        var broadcastEp = new IPEndPoint(IPAddress.Parse("224.0.0.251"), 5353);
-
-
-                        await client.SendAsync(requestBytes, requestBytes.Length, broadcastEp)
-                                    .ConfigureAwait(false);
-                        Debug.WriteLine("Sent mDNS query");
-
-
-                        // wait for responses
-                        await Task.Delay(scanTime, cancellationToken)
-                                  .ConfigureAwait(false);
-                        shouldCancel = true;
-#if !NETSTANDARD1_3
-                        client.Close();
-#endif
-                        Debug.WriteLine("Done Scanning");
-
-
-                        await recTask.ConfigureAwait(false);
-
-                        return;
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.WriteLine("Execption: ", e);
-                        if (i + 1 >= retries) // last one, pass underlying out
-                            throw;
-                    }
-                    finally
-                    {
-
-                    }
-
-                    await Task.Delay(retryDelayMilliseconds, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-
-        private void OnResponse(UdpReceiveResult res)
-        {
-            Console.WriteLine("From: " + res.RemoteEndPoint);
-            lock (this)
-            {
-                ParseAndHandleResponse(res.Buffer, res.Buffer.Length);
-            }
-            //throw new NotImplementedException();
-        }
-#endif
         public void Enable()
         {
             if (_isEnabled)
@@ -186,41 +77,6 @@ namespace Tmds.MDns
 
                 StartReceive();
                 StartQuery();
-
-#if NETSTANDARD1_3
-                return;
-                _lastQueryId = (ushort)_randomGenerator.Next(0, ushort.MaxValue);
-                var writer = new DnsMessageWriter();
-                writer.WriteQueryHeader(_lastQueryId);
-                foreach (var serviceKV in _serviceHandlers)
-                {
-                    Name Name = serviceKV.Key;
-                    writer.WriteQuestion(Name, RecordType.PTR);
-                }
-                var packets = writer.Packets;
-                Send(packets);
-
-                var totalSize = 0;
-                foreach (ArraySegment<byte> segment in packets)
-                {
-                    totalSize += segment.Count;
-                }
-                byte[] dst = new byte[totalSize];
-
-                var currentDstOffset = 0;
-                foreach (ArraySegment<byte> segment in packets)
-                {
-                    Buffer.BlockCopy(
-                        segment.Array,
-                        segment.Offset,
-                        dst,
-                        currentDstOffset,
-                        segment.Count
-                    );
-                    currentDstOffset += segment.Count;
-                }
-                SendAndReceive(dst, 5, TimeSpan.FromMilliseconds(500), 500, OnResponse, new CancellationToken());
-#endif
             }
         }
 
@@ -343,19 +199,6 @@ namespace Tmds.MDns
                     return;
                 }
                 int length = args.BytesTransferred;
-                //Socket senderSocket = sender as Socket;
-                //if (senderSocket != null)
-                //{
-                //    try
-                //    {
-                //        var source = senderSocket.RemoteEndPoint;
-                //        int sadf = 4;
-                //    }
-                //    catch (Exception ex)
-                //    {
-                //        Console.WriteLine(ex);
-                //    }
-                //}
 #else
                 int length;
                 try
@@ -371,130 +214,118 @@ namespace Tmds.MDns
                     return;
                 }
 #endif
-                ParseAndHandleResponse(_buffer, length);
-                
-                StartReceive();
-            }
-        }
+                var stream = new MemoryStream(_buffer, 0, length);
+                var reader = new DnsMessageReader(stream);
+                bool validPacket = true;
 
-        private void ParseAndHandleResponse(byte[] buffer, int length)
-        {
-            var stream = new MemoryStream(buffer, 0, length);
-            var reader = new DnsMessageReader(stream);
-            bool validPacket = true;
+                _packetServiceInfos.Clear();
+                _packetHostAddresses.Clear();
 
-            _packetServiceInfos.Clear();
-            _packetHostAddresses.Clear();
-
-            try
-            {
-                Header header = reader.ReadHeader();
-
-                if (header.IsQuery && header.AnswerCount == 0)
+                try
                 {
-                    for (int i = 0; i < header.QuestionCount; i++)
-                    {
-                        Question question = reader.ReadQuestion();
-                        Name serviceName = question.QName;
-                        if (_serviceHandlers.ContainsKey(serviceName))
-                        {
-                            if (header.TransactionID != _lastQueryId)
-                            {
-                                OnServiceQuery(serviceName);
-                            }
-                        }
-                    }
-                }
-                if (header.IsResponse && header.IsNoError)
-                {
-                    for (int i = 0; i < header.QuestionCount; i++)
-                    {
-                        reader.ReadQuestion();
-                    }
+                    Header header = reader.ReadHeader();
 
-                    for (int i = 0; i < (header.AnswerCount + header.AuthorityCount + header.AdditionalCount); i++)
+                    if (header.IsQuery && header.AnswerCount == 0)
                     {
-                        RecordHeader recordHeader = reader.ReadRecordHeader();
-
-                        if ((recordHeader.Type == RecordType.A) || (recordHeader.Type == RecordType.AAAA)) // A or AAAA
+                        for (int i = 0; i < header.QuestionCount; i++)
                         {
-                            IPAddress address = reader.ReadARecord();
-                            if (address.AddressFamily == AddressFamily.InterNetworkV6)
-                            {
-                                if (!NetworkInterface.Supports(NetworkInterfaceComponent.IPv6))
-                                {
-                                    continue;
-                                }
-
-                                // Mono does not support IPv6 properties and always throws NotImplementedException.
-                                // Lets handle the case as with Supports.
-                                try
-                                {
-                                    address.ScopeId = NetworkInterface.GetIPProperties().GetIPv6Properties().Index;
-                                }
-                                catch (NotImplementedException)
-                                {
-                                    continue;
-                                }
-                            }
-                            OnARecord(recordHeader.Name, address, recordHeader.Ttl);
-                        }
-                        else if ((recordHeader.Type == RecordType.SRV) ||
-                                (recordHeader.Type == RecordType.TXT) ||
-                                (recordHeader.Type == RecordType.PTR))
-                        {
-                            Name serviceName;
-                            Name instanceName;
-                            if (recordHeader.Type == RecordType.PTR)
-                            {
-                                serviceName = recordHeader.Name;
-                                instanceName = reader.ReadPtrRecord();
-                            }
-                            else
-                            {
-                                instanceName = recordHeader.Name;
-                                serviceName = instanceName.SubName(1);
-                            }
+                            Question question = reader.ReadQuestion();
+                            Name serviceName = question.QName;
                             if (_serviceHandlers.ContainsKey(serviceName))
                             {
-                                if (recordHeader.Ttl == 0)
+                                if (header.TransactionID != _lastQueryId)
                                 {
-                                    PacketRemovesService(instanceName);
+                                    OnServiceQuery(serviceName);
+                                }
+                            }
+                        }
+                    }
+                    if (header.IsResponse && header.IsNoError)
+                    {
+                        for (int i = 0; i < header.QuestionCount; i++)
+                        {
+                            reader.ReadQuestion();
+                        }
+
+                        for (int i = 0; i < (header.AnswerCount + header.AuthorityCount + header.AdditionalCount); i++)
+                        {
+                            RecordHeader recordHeader = reader.ReadRecordHeader();
+
+                            if ((recordHeader.Type == RecordType.A) || (recordHeader.Type == RecordType.AAAA)) // A or AAAA
+                            {
+                                IPAddress address = reader.ReadARecord();
+                                if (address.AddressFamily == AddressFamily.InterNetworkV6)
+                                {
+                                    if (!NetworkInterface.Supports(NetworkInterfaceComponent.IPv6))
+                                    {
+                                        continue;
+                                    }
+
+                                    // Mono does not support IPv6 properties and always throws NotImplementedException.
+                                    // Lets handle the case as with Supports.
+                                    try
+                                    {
+                                        address.ScopeId = NetworkInterface.GetIPProperties().GetIPv6Properties().Index;
+                                    }
+                                    catch (NotImplementedException)
+                                    {
+                                        continue;
+                                    }
+                                }
+                                OnARecord(recordHeader.Name, address, recordHeader.Ttl);
+                            }
+                            else if ((recordHeader.Type == RecordType.SRV) ||
+                                    (recordHeader.Type == RecordType.TXT) ||
+                                    (recordHeader.Type == RecordType.PTR))
+                            {
+                                Name serviceName;
+                                Name instanceName;
+                                if (recordHeader.Type == RecordType.PTR)
+                                {
+                                    serviceName = recordHeader.Name;
+                                    instanceName = reader.ReadPtrRecord();
                                 }
                                 else
                                 {
-                                    ServiceInfo service = FindOrCreatePacketService(instanceName);
-                                    if (recordHeader.Type == RecordType.SRV)
+                                    instanceName = recordHeader.Name;
+                                    serviceName = instanceName.SubName(1);
+                                }
+                                if (_serviceHandlers.ContainsKey(serviceName))
+                                {
+                                    if (recordHeader.Ttl == 0)
                                     {
-                                        SrvRecord srvRecord = reader.ReadSrvRecord();
-                                        service.HostName = srvRecord.Target;
-                                        service.Port = srvRecord.Port;
+                                        PacketRemovesService(instanceName);
                                     }
-                                    else if (recordHeader.Type == RecordType.TXT)
+                                    else
                                     {
-                                        List<string> txts = reader.ReadTxtRecord();
-                                        service.Txt = txts;
-                                    }
-                                    else if (recordHeader.Type == RecordType.PTR)
-                                    {
-                                        if (service.Ptr == null)
-                                            service.Ptr = new List<string>();
-                                        service.Ptr.Add(instanceName.ToString());
+                                        ServiceInfo service = FindOrCreatePacketService(instanceName);
+                                        if (recordHeader.Type == RecordType.SRV)
+                                        {
+                                            SrvRecord srvRecord = reader.ReadSrvRecord();
+                                            service.HostName = srvRecord.Target;
+                                            service.Port = srvRecord.Port;
+                                        }
+                                        else if (recordHeader.Type == RecordType.TXT)
+                                        {
+                                            List<string> txts = reader.ReadTxtRecord();
+                                            service.Txt = txts;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            catch
-            {
-                validPacket = false;
-            }
-            if (validPacket)
-            {
-                HandlePacketHostAddresses();
-                HandlePacketServiceInfos();
+                catch
+                {
+                    validPacket = false;
+                }
+                if (validPacket)
+                {
+                    HandlePacketHostAddresses();
+                    HandlePacketServiceInfos();
+                }
+                StartReceive();
             }
         }
 
@@ -657,15 +488,12 @@ namespace Tmds.MDns
                     {
                         service = packetService;
                         _serviceInfos.Add(packetName, service);
-                        var index = packetName.SubName(1);
-                        var serviceHandler = _serviceHandlers[index];
-                        serviceHandler.ServiceInfos.Add(service);
+                        _serviceHandlers[packetName.SubName(1)].ServiceInfos.Add(service);
 
-                        if (service.HostName == null)
+                        if (service.HostName != null)
                         {
-                            service.HostName = new Name("unknown");
+                            AddServiceHostInfo(service);
                         }
-                        AddServiceHostInfo(service);
 
                         modified = true;
                     }
@@ -798,7 +626,7 @@ namespace Tmds.MDns
                 bool sendQuery = false;
                 _lastQueryId = (ushort)_randomGenerator.Next(0, ushort.MaxValue);
                 var writer = new DnsMessageWriter();
-                writer.WriteQueryHeader(_lastQueryId);
+                writer.WriteQueryHeader(_lastQueryId, new DnsMessageWriter.ResponseFlags());
 
                 foreach (var serviceKV in _serviceHandlers)
                 {

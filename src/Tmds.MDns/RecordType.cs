@@ -16,7 +16,7 @@
 
 namespace Tmds.MDns
 {
-    enum RecordType
+    public enum RecordType
     {
         A = 1,
         PTR = 12,

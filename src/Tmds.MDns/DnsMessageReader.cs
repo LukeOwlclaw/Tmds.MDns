@@ -22,7 +22,7 @@ using System.Text;
 
 namespace Tmds.MDns
 {
-    struct Header
+    public struct Header
     {
         public ushort TransactionID;
         public ushort QuestionCount;
@@ -50,13 +50,13 @@ namespace Tmds.MDns
         public bool IsNotImplemented { get { return ((Flags & 0xf) == 4); } }
         public bool IsRefused { get { return ((Flags & 0xf) == 5); } }
     }
-    struct Question
+    public struct Question
     {
         public Name QName;
         public RecordType QType;
         public RecordClass QClass;
     }
-    struct RecordHeader
+    public struct RecordHeader
     {
         public Name Name;
         public RecordType Type;
@@ -64,14 +64,14 @@ namespace Tmds.MDns
         public uint Ttl;
         public ushort DataLength;
     }
-    struct SrvRecord
+    public struct SrvRecord
     {
         public ushort Priority;
         public ushort Weight;
         public ushort Port;
         public Name Target;
     }
-    class DnsMessageReader
+    public class DnsMessageReader
     {
         public DnsMessageReader(Stream stream)
         {

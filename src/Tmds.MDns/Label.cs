@@ -21,7 +21,7 @@ using System.Text;
 
 namespace Tmds.MDns
 {
-    class Name : IComparable<Name>
+    public class Name : IComparable<Name>
     {
         public Name(string name)
         {

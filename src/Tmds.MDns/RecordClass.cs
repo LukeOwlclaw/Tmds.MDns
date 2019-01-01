@@ -16,7 +16,7 @@
 
 namespace Tmds.MDns
 {
-    enum RecordClass
+    public enum RecordClass
     {
         Internet = 1,
         All = 255
